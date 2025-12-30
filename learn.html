@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZoneMTA Hold & Retry Documentation</title>
+<style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; background-color: #f9f9f9; color: #333; }
+    h1, h2, h3 { color: #2c3e50; }
+    pre { background: #eee; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    .note { background-color: #dff0d8; padding: 10px; border-radius: 5px; margin: 10px 0; }
+</style>
+</head>
+<body>
+
+<h1>ZoneMTA Hold & Retry System Documentation</h1>
+
+<h2>1️⃣ config/zonemta.js</h2>
+<pre><code>module.exports = {
+    zonemtaConfigPath: '/home/nived/Documents/zoneMTA/zone-mta/config',
+    HOLD_HOURS: 0.015,
+    RETRY_AFTER_HOLD: 15,
+    SUPPRESS_DAYS: 1,
+    ZONEMTA_RETRY_LIMIT: 5,
+    WORKER_INTERVAL_MS: 4000,
+    RETRY_BASE_DELAY_MS: 10000,
+    RETRY_LOCK_TTL: 30
+};
+</code></pre>
+<p><strong>Explanation:</strong> This file sets configurable numbers controlling hold, retry, and suppression logic. Adjust values as needed (e.g., 12-hour hold, 30-day suppression).</p>
+
+<h2>2️⃣ lib/hold.js</h2>
+<pre><code>module.exports = redis =&gt; { ... }</code></pre>
+<p><strong>Functions:</strong></p>
+<ul>
+<li><code>holdMessage(message)</code>: Puts message in Redis hold queue with <code>retryCount</code> and <code>holdUntil</code>.</li>
+<li><code>suppress(email)</code>: Marks an email as suppressed in Redis for <code>SUPPRESS_DAYS</code>.</li>
+<li><code>isSuppressed(email)</code>: Checks if an email is suppressed.</li>
+</ul>
+<p><strong>Redis keys:</strong></p>
+<ul>
+<li><code>hold:&lt;message-id&gt;</code>: Stores held messages.</li>
+<li><code>suppress:&lt;email-hash&gt;</code>: Stores suppressed emails.</li>
+</ul>
+
+<h2>3️⃣ lib/hold-worker.js</h2>
+<pre><code>module.exports = async (redis, hold, zonemta) =&gt; { ... }</code></pre>
+<p><strong>Explanation:</strong> Moves emails exceeding retry limit to hold queue.</p>
+<ul>
+<li>Fetch failed emails from ZoneMTA.</li>
+<li>If retry count ≥ <code>ZONEMTA_RETRY_LIMIT</code>, move to hold.</li>
+<li>Set <code>retryCount = 0</code> and <code>holdUntil = now + HOLD_HOURS</code>.</li>
+<li>Delete email from active ZoneMTA queue.</li>
+</ul>
+
+<h2>4️⃣ lib/retry-hold-worker.js</h2>
+<pre><code>module.exports = async (redis, hold, zonemta) =&gt; { ... }</code></pre>
+<p><strong>Explanation:</strong></p>
+<ul>
+<li>Scans all held messages.</li>
+<li>Locks message keys to prevent concurrent retries.</li>
+<li>Ignores messages still on hold.</li>
+<li>Deletes suppressed recipients.</li>
+<li>Retries eligible messages using <code>zonemta.requeue()</code>.</li>
+<li>Implements exponential backoff based on <code>retryCount</code>.</li>
+<li>Suppresses messages on hard failure after max retries.</li>
+</ul>
+
+<h2>5️⃣ routes/hold.js</h2>
+<pre><code>module.exports = (redis) =&gt; ({ list(req, res) { ... } })</code></pre>
+<p><strong>Explanation:</strong> Lists all emails in hold queue for the admin UI using Handlebars template <code>hold.hbs</code>.</p>
+
+<h2>6️⃣ routes/hold-actions.js</h2>
+<pre><code>module.exports = (redis, hold, zonemta) =&gt; ({ release(req, res) { ... }, suppress(req, res) { ... } })</code></pre>
+<p><strong>Explanation:</strong></p>
+<ul>
+<li><code>/release</code>: Manually release email from hold for retry.</li>
+<li><code>/suppress</code>: Manually suppress an email.</li>
+<li>Uses the same logic as workers but triggered via UI.</li>
+</ul>
+
+<h2>7️⃣ views/hold.hbs</h2>
+<p>Displays a table of held emails:</p>
+<ul>
+<li>Recipient, retry count, hold until timestamp, actions (release/suppress).</li>
+<li>Auto-refreshes every 3 seconds for real-time updates.</li>
+</ul>
+
+<h2>8️⃣ server.js &amp; app.js</h2>
+<p>Initializes Express server, connects Redis, sets view engine to Handlebars, and registers routes:</p>
+<ul>
+<li><code>/hold</code>: Display held emails.</li>
+<li><code>/hold/:id/release</code>: Release email.</li>
+<li><code>/hold/:id/suppress</code>: Suppress email.</li>
+<li>Starts workers periodically with <code>setInterval</code>.</li>
+</ul>
+
+<h2>✅ Email Lifecycle Overview</h2>
+<ol>
+<li>Email sent → queued in ZoneMTA.</li>
+<li>Email fails → retried <code>ZONEMTA_RETRY_LIMIT</code> times.</li>
+<li>Exceeded retries → hold worker moves email to hold queue.</li>
+<li>Email stays on hold → retry hold worker retries automatically.</li>
+<li>Retries ≥ <code>RETRY_AFTER_HOLD</code> → suppressed for <code>SUPPRESS_DAYS</code>.</li>
+<li>Admin UI allows manual release or suppression.</li>
+<li>Redis stores hold messages and suppression list.</li>
+</ol>
+
+</body>
+</html>

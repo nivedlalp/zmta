@@ -1,0 +1,53 @@
+<div class="mt-4">
+  <h1 class="mb-4">Held Emails</h1>
+
+  {{#if items.length}}
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Recipient</th>
+          <th>Retries</th>
+          <th>Hold Until</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each items}}
+        <tr>
+          <td>{{this.message.envelope.to.[0]}}</td>
+          <td>{{this.retryCount}}</td>
+          <td>{{formatDate this.holdUntil}}</td>
+          <td>
+            <div class="d-flex gap-1">
+              <form action="/hold/{{this.message.id}}/release" method="POST">
+                <button type="submit" class="btn btn-sm btn-success">Release</button>
+              </form>
+
+              <form action="/hold/{{this.message.id}}/suppress" method="POST">
+                <button type="submit" class="btn btn-sm btn-danger">Suppress</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="alert alert-info" role="alert">
+    No emails are currently on hold.
+  </div>
+  {{/if}}
+</div>
+
+<style>
+  .d-flex { display: flex; justify-content: center;}
+  .gap-1 { gap: 1rem; }
+  table th, table td { text-align: center; vertical-align: middle; }
+</style>
+
+<script>
+  // Auto-refresh every 3 seconds
+  setInterval(() => location.reload(), 3000);
+</script>
